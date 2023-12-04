@@ -69,10 +69,10 @@ class IDEC(nn.Module):
                  n_input,
                  n_z,
                  n_clusters,
-                 alpha=1,
+                 delta=1,
                  pretrain_path=''):
         super(IDEC, self).__init__()
-        self.alpha = 1.0
+        self.delta = delta
         self.pretrain_path = pretrain_path
 
         self.ae = AE(
@@ -88,20 +88,20 @@ class IDEC(nn.Module):
         self.cluster_layer = Parameter(torch.Tensor(n_clusters, n_z))
         torch.nn.init.xavier_normal_(self.cluster_layer.data)
 
-    def pretrain(self, path=''):
-        if path == '':
+    def pretrain(self):
+        if not os.path.exists(self.pretrain_path):
             pretrain_ae(self.ae)
         # load pretrain weights
         self.ae.load_state_dict(torch.load(self.pretrain_path))
-        print('load pretrained ae from', path)
+        print('load pretrained ae from', self.pretrain_path)
 
     def forward(self, x):
 
         x_bar, z = self.ae(x)
         # cluster
         q = 1.0 / (1.0 + torch.sum(
-            torch.pow(z.unsqueeze(1) - self.cluster_layer, 2), 2) / self.alpha)
-        q = q.pow((self.alpha + 1.0) / 2.0)
+            torch.pow(z.unsqueeze(1) - self.cluster_layer, 2), 2) / self.delta)
+        q = q.pow((self.delta + 1.0) / 2.0)
         q = (q.t() / torch.sum(q, 1)).t()
         return x_bar, q
 
@@ -138,7 +138,7 @@ def pretrain_ae(model):
     print("model saved to {}.".format(args.pretrain_path))
 
 
-def train_idec():
+def train(args):
     model = IDEC(
         n_enc_1=500,
         n_enc_2=500,
@@ -149,10 +149,10 @@ def train_idec():
         n_input=args.n_input,
         n_z=args.n_z,
         n_clusters=args.n_clusters,
-        alpha=1.0,
+        delta=1.0,
         pretrain_path=args.pretrain_path).to(device)
     start = time.time()  
-    model.pretrain(args.pretrain_path)
+    model.pretrain()
 
     train_loader = DataLoader(
         dataset, batch_size=args.batch_size, shuffle=False)
@@ -203,7 +203,7 @@ def train_idec():
     model.cluster_layer.data = torch.tensor(kmeans.cluster_centers_).to(device)
     max_acc = 0
     model.train()
-    alpha = 1
+    gamma = args.gamma
 
     acc_record = np.zeros((50, 1))
     loss_record = np.zeros((50, 1))
@@ -231,7 +231,7 @@ def train_idec():
             # import pdb; pdb.set_trace()
 
             # total loss
-            loss = args.gamma * balanced_loss + reconstr_loss + 0.01*semi_loss
+            loss = args.alpha * balanced_loss + reconstr_loss + args.beta*semi_loss
             # print( ', Loss {:.4f}'.format(loss.item()))
             total_loss += loss.item()
             
@@ -246,14 +246,14 @@ def train_idec():
                 row = tmp_pair[0]; col = tmp_pair[1]
                 
                 # 限制乘子上限
-                tmp = q_ml_list[batch_idx][row, col] + alpha*(1-torch.dot(y_pred[row], y_pred[col]))
+                tmp = q_ml_list[batch_idx][row, col] + gamma*(1-torch.dot(y_pred[row], y_pred[col]))
                 if tmp > 2:
                     q_ml_list[batch_idx][row, col] = q_ml_list[batch_idx][row, col]
                     q_ml_list[batch_idx][col, row] = q_ml_list[batch_idx][col, row]
 
                 else:
-                    q_ml_list[batch_idx][row, col] = q_ml_list[batch_idx][row, col] + alpha*(1-torch.dot(y_pred[row], y_pred[col]))
-                    q_ml_list[batch_idx][col, row] = q_ml_list[batch_idx][col, row] + alpha*(1-torch.dot(y_pred[row], y_pred[col]))
+                    q_ml_list[batch_idx][row, col] = q_ml_list[batch_idx][row, col] + gamma*(1-torch.dot(y_pred[row], y_pred[col]))
+                    q_ml_list[batch_idx][col, row] = q_ml_list[batch_idx][col, row] + gamma*(1-torch.dot(y_pred[row], y_pred[col]))
 
             q_ml_list[batch_idx] = q_ml_list[batch_idx]
 
@@ -265,13 +265,13 @@ def train_idec():
             for i in range(len(cl_pairs[batch_idx])):
                 tmp_pair = cl_pairs[batch_idx][i]
                 row = tmp_pair[0]; col = tmp_pair[1]
-                tmp = last_qcl[row, col] + alpha*torch.dot(y_pred[row], y_pred[col])
+                tmp = last_qcl[row, col] + gamma*torch.dot(y_pred[row], y_pred[col])
                 if tmp > 2:
                     tmp_cl[row, col] = last_qcl[row, col]
                     tmp_cl[col, row] = last_qcl[col, row]
                 else:
-                    tmp_cl[row, col] = last_qcl[row, col] + alpha*torch.dot(y_pred[row], y_pred[col])
-                    tmp_cl[col, row] = last_qcl[col, row] + alpha*torch.dot(y_pred[row], y_pred[col])
+                    tmp_cl[row, col] = last_qcl[row, col] + gamma*torch.dot(y_pred[row], y_pred[col])
+                    tmp_cl[col, row] = last_qcl[col, row] + gamma*torch.dot(y_pred[row], y_pred[col])
 
                 # import pdb; pdb.set_trace()
             # tmp_cl += tmp_cl.T
@@ -352,7 +352,10 @@ if __name__ == "__main__":
     parser.add_argument('--n_z', default=10, type=int)
     parser.add_argument('--dataset', type=str, default='mnist')
     parser.add_argument('--pretrain_path', type=str, default='data/ae_mnist.pkl')
-    parser.add_argument('--gamma', default=0.1, type=float, help='coefficient of clustering loss')
+    parser.add_argument('--alpha', default=0.1, type=float, help='coefficient of clustering loss')
+    parser.add_argument('--beta', default=0.1, type=float, help='coefficient of balanced loss')
+    parser.add_argument('--gamma', default=1.0, type=float, help='coefficient of learning rate')
+    parser.add_argument('--ratio', default=0.1, type=float, help='ratio of #ml')
     parser.add_argument('--update_interval', default=1, type=int)
     parser.add_argument('--tol', default=0.001, type=float)
     args = parser.parse_args()
@@ -364,6 +367,7 @@ if __name__ == "__main__":
         args.pretrain_path = 'data/ae_mnist.pkl'
         args.n_clusters = 10
         args.n_input = 784
+        args.beta = 0.01
     elif args.dataset == 'usps':
         args.pretrain_path = 'data/ae_usps.pkl'
         args.n_clusters = 10
@@ -379,9 +383,9 @@ if __name__ == "__main__":
 
     dataset = LoadDataset(args.dataset)
 
-    n_ml = np.int32(np.floor(len(dataset) * 0.1));
+    n_ml = np.int32(np.floor(len(dataset) * args.ratio));
     n_cl = n_ml;
     ml_pairs, cl_pairs = generate_pairs(dataset.y, n_ml, n_cl);
-    # import pdb; pdb.set_trace()
+
     print(args)
-    train_idec()
+    train(args)
