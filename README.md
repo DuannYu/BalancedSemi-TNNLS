@@ -16,6 +16,12 @@ python semi_bal.py --dataset $DATASET_NAME
 Our results on  whole four datasets:
 ![dataset](assets/results.png)
 
-## License
+## Citations
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+@article{duan2024toward,
+  title={Toward Balance Deep Semisupervised Clustering},
+  author={Duan, Yu and Lu, Zhoumin and Wang, Rong and Li, Xuelong and Nie, Feiping},
+  journal={IEEE Transactions on Neural Networks and Learning Systems},
+  year={2024},
+  publisher={IEEE}
+}
