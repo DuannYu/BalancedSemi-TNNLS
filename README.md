@@ -18,6 +18,7 @@ Our results on  whole four datasets:
 
 ## Citations
 
+```bibtex
 @article{duan2024toward,
   title={Toward Balance Deep Semisupervised Clustering},
   author={Duan, Yu and Lu, Zhoumin and Wang, Rong and Li, Xuelong and Nie, Feiping},
@@ -25,3 +26,4 @@ Our results on  whole four datasets:
   year={2024},
   publisher={IEEE}
 }
+```
